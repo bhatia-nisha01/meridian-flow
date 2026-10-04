@@ -1,69 +1,114 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import { StoreProvider, useStore } from "@/lib/store";
+import PatientView from "@/components/PatientView";
+import OperationsView from "@/components/OperationsView";
+import ClinicianView from "@/components/ClinicianView";
+import { fmt } from "@/lib/types";
+import { getRole } from "@/lib/session";
+
+function Shell() {
+  const { state, dispatch } = useStore();
+  const [tab, setTab] = useState<"patient" | "ops" | "clin">("patient");
+  const [role, setRole] = useState<"all" | "patient" | "ops" | "clinician">("all");
+
+  useEffect(() => {
+    const r = getRole();
+    setRole(r);
+    if (r === "ops") setTab("ops");
+    if (r === "clinician") setTab("clin");
+  }, []);
+
+  // Patient-only mode: staff steps happen automatically (labelled as simulated staff)
+  // so a solo tester is never stuck waiting for a reviewer who doesn't exist.
+  const meera = state.patients.find((p) => p.id === "p-meera");
+  useEffect(() => {
+    if (role !== "patient") return;
+    if (meera?.phase === "AWAITING_SCHEDULING_APPROVAL") {
+      const t = setTimeout(() => dispatch({ type: "OPS_APPROVE_SCHEDULING" }), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [role, meera?.phase, dispatch]);
+  useEffect(() => {
+    if (role !== "patient") return;
+    const pending = state.proposals.find((p) => p.status === "pending_staff" && p.patientId === "p-meera");
+    if (pending) {
+      const t = setTimeout(() => dispatch({ type: "APPROVE_PROPOSAL", id: pending.id }), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [role, state.proposals, dispatch]);
+  useEffect(() => {
+    if (role !== "patient") return;
+    if (state.emergency.status === "requested") {
+      const t = setTimeout(() => dispatch({ type: "OPS_DISPATCH_AMBULANCE" }), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [role, state.emergency.status, dispatch]);
+
+  const visibleTabs = (
+    [
+      ["patient", "🧑 Patient"],
+      ["ops", "🏥 Operations"],
+      ["clin", "🩺 Clinician"],
+    ] as const
+  ).filter(([k]) => role === "all" || (role === "patient" && k === "patient") || (role === "ops" && k !== "clin") || (role === "clinician" && k !== "ops"));
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <header className="bg-slate-900 text-white px-6 py-3">
+        <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-lg font-semibold">
+              Meridian Flow <span className="text-amber-400 text-xs font-medium align-middle border border-amber-400/50 rounded px-1.5 py-0.5 ml-1">SIMULATION</span>
+            </h1>
+            <p className="text-slate-400 text-xs">
+              Orthopaedics OPD · {state.simPhase === "booking" ? "Booking evening — Mon 5 Oct 2026" : `Clinic day — Tue 6 Oct 2026, ${fmt(state.clock)}`} (Asia/Kolkata) · plan v{state.planVersion} · recommend mode
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <div className="flex rounded-lg overflow-hidden border border-slate-700">
+              {visibleTabs.map(([k, label]) => (
+                <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 font-medium ${tab === k ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {state.simPhase === "booking" ? (
+              <button onClick={() => dispatch({ type: "JUMP_TO_CLINIC" })} className="border border-amber-500/60 text-amber-300 rounded-lg px-3 py-1.5 hover:bg-slate-800">
+                ⏭ Jump to clinic day
+              </button>
+            ) : tab === "ops" ? (
+              <button onClick={() => dispatch({ type: "ADVANCE_CLOCK", minutes: 10 })} className="border border-slate-600 text-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-800" title="Simulation clock control">
+                ⏩ clock +10 min
+              </button>
+            ) : null}
+            <button
+              onClick={() => {
+                if (confirm("Reset the simulation to the original seed?")) dispatch({ type: "RESET" });
+              }}
+              className="border border-slate-600 text-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-800"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              ↺ Reset
+            </button>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+      </header>
+
+      <main className="max-w-[1400px] mx-auto p-5">
+        {tab === "patient" && <PatientView />}
+        {tab === "ops" && <OperationsView />}
+        {tab === "clin" && <ClinicianView />}
       </main>
+
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <StoreProvider>
+      <Shell />
+    </StoreProvider>
   );
 }
