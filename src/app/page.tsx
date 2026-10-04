@@ -101,6 +101,11 @@ function Shell() {
         {tab === "clin" && <ClinicianView />}
       </main>
 
+      <footer className="max-w-[1400px] mx-auto px-5 pb-6 text-[11px] text-slate-400">
+        Simulation — synthetic data only. Conversational intake runs live on a large language model; it cannot diagnose or change the
+        schedule. Interactions are recorded for prototype evaluation.
+      </footer>
+
     </div>
   );
 }
