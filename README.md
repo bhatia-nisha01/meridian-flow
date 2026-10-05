@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Meridian Flow
 
-## Getting Started
+AI-native OPD (outpatient) access & patient-flow prototype. Built for the devx labs candidate assignment — **all data is synthetic; this is a simulation.**
 
-First, run the development server:
+**Live demo:** https://meridian-flow-drab.vercel.app
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Design principle
+
+> Probabilistic AI understands unstructured language and drafts explanations.
+> Deterministic software owns availability, scheduling, and state transitions.
+> Humans retain authority over medical decisions and every consequential change.
+
+## Architecture
+
+```
+Patient language
+      ↓
+Intake LLM  (src/app/api/intake/route.ts)
+bounded routing contract — no availability, no calendar access
+      ↓
+Deterministic routing gate  (src/lib/store.tsx → CHAT_AGENT)
+   ↙            ↓               ↘
+routine    clinical review    emergency
+   ↓        (clinician owns)   (bypasses booking + payment)
+availability adapter  (src/lib/availability.ts — synthetic HIS)
+   ↓
+scheduling / flow engine  (src/lib/engine.ts)
+forecasts · recovery proposals · feasibility
+   ↓
+proposal (with "why" facts)
+   ↓
+Operations approval
+   ↓
+Patient consent
+   ↓
+state mutation  (guards in the reducer, not in buttons)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## What the AI does
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Understands the patient's own words and classifies the **operating lane**: `routine | clinical_review | emergency | clarify`
+- Captures volunteered scheduling constraints and doctor preferences (captured, never promised)
+- Replies briefly (1–2 sentences), one clarifying question max
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## What it cannot do
 
-## Learn More
+- Diagnose, prescribe, or assign clinical urgency (clinician-owned escalation policy routes those lanes)
+- See, state, or invent availability — slots come only from the availability adapter
+- Create, move, or cancel any booking — only the state machine mutates state, behind approval + consent
 
-To learn more about Next.js, take a look at the following resources:
+## Key invariants (enforced in the state layer, tested in `tests/`)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `originalWindow` (the promised time) is immutable once set — lateness is reported, never hidden
+- A confirmed booking never changes without staff approval **and** patient acceptance
+- `clinical_review`-lane requests receive **zero** appointment offers until a clinician decides
+- Emergency flow never waits on payment or routine approvals
+- Consultations cannot start unless the patient is checked in, ready, pathway-approved, and the doctor is free
+- Stale proposals (drafted against an outdated plan version) cannot be applied
+- Capacity offers cannot double-book; declining preserves the patient's position
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Evals & tests
 
-## Deploy on Vercel
+```bash
+npm test        # deterministic invariant tests against the reducer/engine
+npm run eval    # LLM routing evals against a running instance (EVAL_URL, default http://localhost:3200)
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Real vs simulated
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Real:** live LLM intake (Claude Opus 4.8, schema-validated), the scheduling engine, forecasts, proposals, consent loops, tokens, holds, and all three synchronized views.
+**Simulated & labelled:** the clinic/patients (synthetic seed), payments, calls/WhatsApp, ambulance dispatch, identity (demo persona; production = phone + OTP), and HIS integration (synthetic adapter). Telemetry stores anonymous session transcripts for prototype evaluation — disclosed in-app.
+
+## Run locally
+
+```bash
+npm install
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
+npm run dev     # http://localhost:3000
+```
+
+Docs: see `/docs` — POV, walkthrough script, demo guide, and the AI system-design note.

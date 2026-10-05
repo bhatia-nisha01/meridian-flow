@@ -22,17 +22,21 @@ function Shell() {
 
   // Patient-only mode: staff steps happen automatically (labelled as simulated staff)
   // so a solo tester is never stuck waiting for a reviewer who doesn't exist.
-  const meera = state.patients.find((p) => p.id === "p-meera");
+  const awaitingClinical = state.patients.find((p) => p.id.startsWith("p-meera") && p.phase === "AWAITING_CLINICAL_REVIEW");
+  const awaitingScheduling = state.patients.find((p) => p.id.startsWith("p-meera") && p.phase === "AWAITING_SCHEDULING_APPROVAL");
+  useEffect(() => {
+    if (role !== "patient" || !awaitingClinical) return;
+    const t = setTimeout(() => dispatch({ type: "CLINICAL_REVIEW_RESOLVE", patientId: awaitingClinical.id, outcome: "approve" }), 6000);
+    return () => clearTimeout(t);
+  }, [role, awaitingClinical?.id, dispatch]);
+  useEffect(() => {
+    if (role !== "patient" || !awaitingScheduling) return;
+    const t = setTimeout(() => dispatch({ type: "OPS_APPROVE_SCHEDULING" }), 5000);
+    return () => clearTimeout(t);
+  }, [role, awaitingScheduling?.id, dispatch]);
   useEffect(() => {
     if (role !== "patient") return;
-    if (meera?.phase === "AWAITING_SCHEDULING_APPROVAL") {
-      const t = setTimeout(() => dispatch({ type: "OPS_APPROVE_SCHEDULING" }), 5000);
-      return () => clearTimeout(t);
-    }
-  }, [role, meera?.phase, dispatch]);
-  useEffect(() => {
-    if (role !== "patient") return;
-    const pending = state.proposals.find((p) => p.status === "pending_staff" && p.patientId === "p-meera");
+    const pending = state.proposals.find((p) => p.status === "pending_staff" && p.patientId.startsWith("p-meera"));
     if (pending) {
       const t = setTimeout(() => dispatch({ type: "APPROVE_PROPOSAL", id: pending.id }), 4000);
       return () => clearTimeout(t);

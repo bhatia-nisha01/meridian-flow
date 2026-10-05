@@ -48,7 +48,7 @@ export default function ClinicianView() {
           <div className="font-semibold">Clinical review requests <span className="text-xs font-normal text-slate-400">— medical judgment only a clinician can give</span></div>
           {clinicalReviews.map((p) => (
             <div key={p.id} className="border border-slate-200 rounded-lg p-3">
-              <div className="font-medium">{p.name} <span className="text-xs text-slate-500">(walk-in)</span></div>
+              <div className="font-medium">{p.name} <span className="text-xs text-slate-500">{p.walkIn ? "(walk-in)" : "(intake routing)"}</span></div>
               <div className="text-xs text-slate-600 mb-2">Reported: {p.reportedNeed}</div>
               <div className="flex gap-2">
                 <button onClick={() => dispatch({ type: "CLINICAL_REVIEW_RESOLVE", patientId: p.id, outcome: "approve" })} className="text-xs bg-blue-600 text-white rounded px-3 py-1.5">
@@ -184,16 +184,29 @@ function AvailabilityControls({ clinId }: { clinId: string }) {
 function OutcomeForm({ patientId }: { patientId: string }) {
   const { dispatch } = useStore();
   const [notes, setNotes] = useState("");
-  const [diagnosis, setDiagnosis] = useState("Patellofemoral pain syndrome");
-  const [plan, setPlan] = useState("Physiotherapy 3×/week for 3 weeks; review after");
-  const [rx, setRx] = useState("Paracetamol 500mg PRN");
+  const [diagnosis, setDiagnosis] = useState("");
+  const [plan, setPlan] = useState("");
+  const [rx, setRx] = useState("");
   const [orderTest, setOrderTest] = useState(false);
   const [orderFollowUp, setOrderFollowUp] = useState(true);
   const [orderReferral, setOrderReferral] = useState(false);
 
   return (
     <div className="border border-slate-200 rounded-lg p-3 space-y-2 text-xs">
-      <div className="font-semibold text-sm">Record outcome &amp; next steps</div>
+      <div className="flex items-center justify-between">
+        <div className="font-semibold text-sm">Record outcome &amp; next steps</div>
+        <button
+          onClick={() => {
+            setDiagnosis("Patellofemoral pain syndrome");
+            setPlan("Physiotherapy 3×/week for 3 weeks; review after");
+            setRx("Paracetamol 500mg PRN");
+          }}
+          className="text-[10px] border border-slate-300 rounded px-2 py-0.5 text-slate-500 hover:bg-slate-50"
+        >
+          Load synthetic clinician-entered example
+        </button>
+      </div>
+      <div className="text-[10px] text-slate-400">Demo convenience only — represents clinician-entered documentation; no model generates diagnosis or treatment.</div>
       <label className="block">
         Diagnosis
         <input value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1 mt-0.5" />

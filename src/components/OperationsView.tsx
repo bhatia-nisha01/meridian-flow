@@ -68,7 +68,7 @@ function ApprovalsQueue() {
             <div className="font-medium">{p.name} {p.walkIn && <span className="text-xs text-slate-500">(walk-in)</span>}</div>
             <div className="text-xs text-slate-600 mb-2">{p.reportedNeed || p.seedNote}{p.review.reviewer ? ` · clinician review: ${p.review.reviewer}` : ""}</div>
             <button
-              onClick={() => (p.id === MEERA_ID ? dispatch({ type: "OPS_APPROVE_SCHEDULING" }) : dispatch({ type: "OPS_APPROVE_WALKIN", patientId: p.id }))}
+              onClick={() => (p.id.startsWith("p-meera") ? dispatch({ type: "OPS_APPROVE_SCHEDULING" }) : dispatch({ type: "OPS_APPROVE_WALKIN", patientId: p.id }))}
               className="text-xs bg-blue-600 text-white rounded px-3 py-1.5 font-semibold"
             >
               Approve &amp; {p.id === MEERA_ID ? "offer times" : "slot in"}
@@ -149,18 +149,18 @@ function ClinicBoard() {
       <div className="bg-white rounded-xl border border-slate-200 p-3 text-xs flex flex-wrap items-center gap-2">
         <span className="font-semibold text-slate-500">Capacity actions:</span>
         <button onClick={() => dispatch({ type: "REBALANCE_FIRST_VISITS" })} className="border border-blue-300 text-blue-700 rounded px-2.5 py-1 hover:bg-blue-50">
-          ⚖ Balance first-visit load across doctors
+          ⚖ Generate load-balancing plan (proposals, not moves)
         </button>
         {state.clinicians.filter((c) => !state.cancelledDoctors.includes(c.id)).map((c) => (
           <button
             key={c.id}
             onClick={() => {
-              if (confirm(`${c.name} unavailable for the rest of the session?\n\n→ First visits & walk-ins: reallocated to other doctors automatically (doctor is availability-assigned).\n→ Follow-ups: informed that ${c.name} isn't available, with a consented choice — another doctor now, or reschedule with ${c.name} another day.\n→ Cancellation + refund only where nothing feasible fits.`))
+              if (confirm(`${c.name} unavailable for the rest of the session?\n\nThe system drafts a recovery proposal per affected patient (new doctor/time + a drafted message). Nothing moves until you approve each one and the patient accepts. Cancellation + refund only where nothing feasible fits.`))
                 dispatch({ type: "CANCEL_DOCTOR_SESSION", clinicianId: c.id });
             }}
             className="border border-amber-300 text-amber-800 bg-amber-50 rounded px-2.5 py-1 hover:bg-amber-100"
           >
-            {c.name} unavailable → reallocate
+            {c.name} unavailable → draft recovery plan
           </button>
         ))}
         {state.cancelledDoctors.length > 0 && <span className="text-red-600">Cancelled: {state.cancelledDoctors.map((id) => state.clinicians.find((c) => c.id === id)?.name).join(", ")}</span>}
@@ -371,7 +371,7 @@ function TasksQueue() {
           <div className="flex gap-2 mt-1.5">
             {x.category === "Patient unhappy with offered slots" && (
               <button onClick={() => dispatch({ type: "STAFF_IMMEDIATE_OFFER" })} className="bg-blue-600 text-white rounded px-2.5 py-1 font-semibold">
-                Urgency assessed → offer immediate slot
+                Scheduling callback complete → offer earliest feasible slot
               </button>
             )}
             {x.category.startsWith("EMERGENCY") && state.emergency.status === "requested" && (

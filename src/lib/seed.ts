@@ -120,7 +120,7 @@ export function buildSeed(): FlowState {
     }),
     // Waitlist
     basePatient("p-anil", "Anil Sethi", { waitlist: true, seedNote: "Waitlist — flexible timing" }),
-    basePatient("p-sana", "Sana Mir", { waitlist: true, assisted: true, seedNote: "Waitlist — only after 18:00, assisted contact" }),
+    basePatient("p-sana", "Sana Mir", { waitlist: true, assisted: true, availabilityEarliest: 18 * 60, seedNote: "Waitlist — only after 18:00, assisted contact" }),
   ];
 
   return {
@@ -167,7 +167,7 @@ export function buildSeed(): FlowState {
         text: "Hello! I can help you book a consultation at Meridian Hospital. Tell me what you need in your own words — this is a simulation, so please use invented details only.",
       },
     ],
-    intakeExtract: null,
+    lastIntake: null,
     intakeDone: false,
     offers: null,
     disruptionsUsed: [],
@@ -183,11 +183,11 @@ export const MEERA_ID = "p-meera";
 
 // Meera's seeded identity as a returning patient (history + an unbooked recommended follow-up).
 export const MEERA_HISTORY = [
-  { date: "14 Mar 2025", doctor: "Dr Rao", reason: "Knee strain (left) after trek", outcome: "Rest + physio; follow-up recommended in 6 weeks — never booked", prescription: "Ibuprofen 400mg PRN" },
+  { date: "14 Sep 2026", doctor: "Dr Rao", reason: "Knee strain (left) after trek", outcome: "Rest + physio; follow-up recommended in 3–4 weeks — never booked", prescription: "Ibuprofen 400mg PRN" },
   { date: "02 Nov 2024", doctor: "Dr Kavita Menon (Gen Med)", reason: "Annual health check", outcome: "Normal; Vitamin D low", prescription: "Vit D3 60k weekly × 8" },
 ];
 
 export const MEERA_DOCS = [
-  { id: "d-old-xray", name: "Knee X-ray — Mar 2025.pdf", status: "available" as const, note: "From previous visit" },
+  { id: "d-old-xray", name: "Knee X-ray — Sep 2026.pdf", status: "available" as const, note: "From previous visit" },
   { id: "d-health-check", name: "Health check report — Nov 2024.pdf", status: "available" as const },
 ];

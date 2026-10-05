@@ -3,8 +3,8 @@
 import { useRef, useState } from "react";
 import { useStore, meeraVisits } from "@/lib/store";
 import { ARRIVE_EARLY, findFeasibleSlot } from "@/lib/engine";
-import { IntakeExtract, PatientRecord, fmt, fmtWin, rupees } from "@/lib/types";
-import { getSessionId, getTester } from "@/lib/session";
+import { IntakeDecision, PatientRecord, fmt, fmtWin, rupees } from "@/lib/types";
+import { getSessionId } from "@/lib/session";
 
 const EXAMPLE = "My knee has been hurting for three weeks.";
 
@@ -31,11 +31,11 @@ export default function PatientView() {
       const res = await fetch("/api/intake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, sessionId: getSessionId(), tester: getTester() }),
+        body: JSON.stringify({ messages: history, sessionId: getSessionId() }),
       });
       if (!res.ok) throw new Error(`The booking assistant is unavailable (${res.status}). Your text is saved — retry or ask staff for help.`);
-      const data = (await res.json()) as IntakeExtract & { assistantMessage: string };
-      dispatch({ type: "CHAT_AGENT", text: data.assistantMessage, extract: data });
+      const data = (await res.json()) as IntakeDecision;
+      dispatch({ type: "CHAT_AGENT", text: data.assistantMessage, decision: data });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -101,13 +101,21 @@ export default function PatientView() {
               ))}
               {state.exceptions.some((x) => x.category === "Patient unhappy with offered slots" && x.status === "open") ? (
                 <div className="border border-amber-300 bg-amber-50 rounded-lg p-2.5 text-xs text-amber-900">
-                  ✓ Our staff will call you shortly to understand the urgency and find you a better option.
+                  ✓ Our staff will call to understand your scheduling constraints. Any medical concern is routed to a clinician.
                 </div>
               ) : (
                 <button onClick={() => dispatch({ type: "UNHAPPY_SLOTS" })} className="w-full border border-slate-300 rounded-lg py-2 text-xs text-slate-600 hover:bg-slate-50">
                   I need a different day/time — ask staff to call me
                 </button>
               )}
+            </div>
+          ) : meeraVisits(state).some((p) => p.phase === "AWAITING_CLINICAL_REVIEW") ? (
+            <div className="m-3 border border-red-200 bg-red-50 rounded-lg p-3 text-sm text-red-900">
+              A clinician needs to review this before any booking. <b>Your visit is not booked yet</b> — no times can be offered until they decide.
+            </div>
+          ) : meeraVisits(state).some((p) => p.phase === "AWAITING_SCHEDULING_APPROVAL") ? (
+            <div className="m-3 border border-amber-300 bg-amber-50 rounded-lg p-3 text-sm text-amber-900">
+              Clinician approved — our team is arranging times now.
             </div>
           ) : (
             <div className="border-t border-slate-100 p-3">
@@ -122,7 +130,7 @@ export default function PatientView() {
           <div className="bg-white rounded-xl shadow-sm border border-indigo-200 p-4 text-sm">
             <div className="font-semibold">Recommended for you</div>
             <div className="text-xs text-slate-500 mt-1">
-              Dr Rao recommended a knee follow-up in <b>Mar 2025</b> — it was never booked. Follow-ups book instantly under your doctor&apos;s existing instruction.
+              Dr Rao recommended a knee follow-up in <b>3–4 weeks</b> (14 Sep 2026) — it was never booked. Follow-ups book instantly under your doctor&apos;s existing instruction.
             </div>
             <button onClick={() => dispatch({ type: "BOOK_MISSED_FOLLOWUP" })} className="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg py-2 text-sm font-semibold">
               Book follow-up with Dr Rao · {rupees(400)}
@@ -180,7 +188,7 @@ function VisitCard({ visitId }: { visitId: string }) {
       )}
       {me.token && me.phase === "BOOKED" && (
         <div className="border border-emerald-300 bg-emerald-50 rounded-lg p-3 text-emerald-900">
-          ✓ Checked in — your token is <b>{me.token}</b>. You&apos;ll be called in token order for your slot.
+          ✓ Checked in — your token is <b>{me.token}</b>. We&apos;ll call you when your clinician is ready.
         </div>
       )}
       {me.onHold && (
@@ -415,13 +423,13 @@ function HistoryCard() {
   const [docName, setDocName] = useState("");
 
   const fallbackHistory: PatientRecord["history"] = [
-    { date: "14 Mar 2025", doctor: "Dr Rao", reason: "Knee strain (left) after trek", outcome: "Rest + physio; follow-up recommended — never booked", prescription: "Ibuprofen 400mg PRN" },
+    { date: "14 Sep 2026", doctor: "Dr Rao", reason: "Knee strain (left) after trek", outcome: "Rest + physio; follow-up in 3–4 weeks recommended — never booked", prescription: "Ibuprofen 400mg PRN" },
     { date: "02 Nov 2024", doctor: "Dr Kavita Menon", reason: "Annual health check", outcome: "Normal; Vitamin D low", prescription: "Vit D3 weekly × 8" },
   ];
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 text-sm space-y-4">
-      <div className="text-base font-semibold">My health record — Meera Shah</div>
+      <div className="text-base font-semibold">My Meridian records — Meera Shah</div>
 
       <div>
         <div className="text-xs font-semibold text-slate-500 mb-1.5">Previous consultations</div>

@@ -79,6 +79,8 @@ export interface PatientRecord {
   readiness: { id: string; label: string; status: "needed" | "provided" | "verified" | "blocked" | "not_required"; blockingReason?: string }[];
   durationEstimate: number;
   waitlist?: boolean;
+  availabilityEarliest?: number; // minutes-of-day; structured constraint, not parsed from notes
+  constraintNote?: string; // patient-volunteered scheduling constraint, verbatim-ish
   walkIn?: boolean;
   assisted?: boolean;
   consultStartedAt?: number;
@@ -143,18 +145,15 @@ export interface ChatMsg {
   text: string;
 }
 
-export interface IntakeExtract {
+// The model's entire authority: understand the patient, pick the operating lane, speak briefly.
+export type RoutingDecision = "routine" | "clinical_review" | "emergency" | "clarify";
+
+export interface IntakeDecision {
   patientReportedNeed: string | null;
-  preferredLocalDate: string | null;
-  earliestTime: string | null;
-  latestTime: string | null;
-  travelMinutes: number | null;
-  preferredClinician: string | null;
-  missingFields: string[];
-  contradictions: string[];
-  requiresStaffReview: boolean;
-  nextQuestion: string | null;
-  intakeComplete: boolean;
+  routingDecision: RoutingDecision;
+  preferredClinicianMention: string | null;
+  schedulingConstraints: string | null;
+  assistantMessage: string;
 }
 
 export interface Offer {
@@ -187,7 +186,7 @@ export interface FlowState {
   imagingDown: boolean;
   staffActions: number;
   chat: ChatMsg[];
-  intakeExtract: IntakeExtract | null;
+  lastIntake: IntakeDecision | null;
   intakeDone: boolean;
   offers: Offer[] | null;
   disruptionsUsed: string[];

@@ -113,12 +113,12 @@ export function draftCapacityOffer(state: FlowState, freedWindow: [number, numbe
   const facts: string[] = [`Freed capacity: ${clin.name} ${fmtWin(freedWindow)}.`];
   let chosen: PatientRecord | null = null;
   for (const w of waitlist) {
-    const timeOk = !w.seedNote.includes("after 18:00") || freedWindow[0] >= 18 * 60;
+    const timeOk = w.availabilityEarliest == null || freedWindow[0] >= w.availabilityEarliest;
     if (timeOk && !chosen) {
       chosen = w;
       facts.push(`${w.name} selected: flexible timing; contacted ${w.assisted ? "by phone (assisted)" : "on WhatsApp"}.`);
     } else {
-      facts.push(`${w.name} excluded: ${timeOk ? "an earlier offer is already out (one at a time)" : "available only after 18:00"}.`);
+      facts.push(`${w.name} excluded: ${timeOk ? "an earlier offer is already out (one at a time)" : `available only after ${fmt(w.availabilityEarliest!)}`}.`);
     }
   }
   if (!chosen) return null;
@@ -186,7 +186,12 @@ export function computeMetrics(state: FlowState) {
   for (const c of state.clinicians) {
     staffed += c.staffedTo - c.staffedFrom - (c.breakTo - c.breakFrom);
     for (const p of state.patients) {
-      if (p.clinicianId === c.id && ["IN_CONSULT", "COMPLETE"].includes(p.phase)) busy += p.durationEstimate;
+      if (p.clinicianId !== c.id) continue;
+      if (p.phase === "COMPLETE" && p.consultStartedAt != null && p.consultEndedAt != null) {
+        busy += p.consultEndedAt - p.consultStartedAt; // measured, not estimated
+      } else if (p.phase === "IN_CONSULT" && p.consultStartedAt != null) {
+        busy += Math.max(0, state.clock - p.consultStartedAt); // elapsed so far
+      }
     }
   }
   return {

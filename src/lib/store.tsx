@@ -6,13 +6,14 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef } from "react";
 import { buildSeed, MEERA_ID, MEERA_HISTORY, MEERA_DOCS } from "./seed";
 import { draftTimeChangeProposals, draftCapacityOffer, findFeasibleSlot, remainingLoad } from "./engine";
-import { ChatMsg, FlowState, IntakeExtract, NextStepOrder, Offer, PatientRecord, fmt, fmtWin, rupees } from "./types";
+import { ChatMsg, FlowState, IntakeDecision, NextStepOrder, PatientRecord, fmt, fmtWin, rupees } from "./types";
+import { getBookableSlots } from "./availability";
 
 const T = (h: number, m = 0) => h * 60 + m;
 
 export type Action =
   | { type: "CHAT_USER"; text: string }
-  | { type: "CHAT_AGENT"; text: string; extract: IntakeExtract | null }
+  | { type: "CHAT_AGENT"; text: string; decision: IntakeDecision | null }
   | { type: "OPS_APPROVE_SCHEDULING" }
   | { type: "CONFIRM_OFFER"; offerId: string }
   | { type: "BOOK_MISSED_FOLLOWUP" }
@@ -98,15 +99,6 @@ function bumpPlan(s: FlowState): FlowState {
   return markStale({ ...s, planVersion: s.planVersion + 1 });
 }
 
-function buildOffers(): Offer[] {
-  // Earliest slots over the next 3 days. The patient picks a TIME; the doctor is assigned by availability.
-  return [
-    { id: "offer-tue-1730", clinicianId: "dr-mehta", clinicianName: "Dr Mehta", window: [T(17, 30), T(17, 50)], dateLabel: "Tue 6 Oct", differentClinician: false, note: "Earliest available" },
-    { id: "offer-tue-1820", clinicianId: "dr-shah", clinicianName: "Dr Shah", window: [T(18, 20), T(18, 40)], dateLabel: "Tue 6 Oct", differentClinician: false, note: "" },
-    { id: "offer-wed-0930", clinicianId: "dr-mehta", clinicianName: "Dr Mehta", window: [T(9, 30), T(9, 50)], dateLabel: "Wed 7 Oct", differentClinician: false, note: "" },
-  ];
-}
-
 function makeMeera(extra: Partial<PatientRecord>): PatientRecord {
   return {
     id: MEERA_ID,
@@ -144,47 +136,83 @@ export function reducer(state: FlowState, action: Action): FlowState {
       return { ...s, chat: [...s.chat, { role: "user", text: action.text } as ChatMsg] };
 
     case "CHAT_AGENT": {
-      s = { ...s, chat: [...s.chat, { role: "agent", text: action.text }], intakeExtract: action.extract ?? s.intakeExtract };
-      if (action.extract?.intakeComplete && !s.intakeDone) {
-        s = { ...s, intakeDone: true };
-        const n = meeraVisits(s).length;
-        const id = n === 0 ? MEERA_ID : `${MEERA_ID}-${n + 1}`;
-        const need = action.extract?.patientReportedNeed ?? "New consultation request";
-        s = {
-          ...s,
-          patients: [
-            ...s.patients,
-            makeMeera({
-              ...( { id } as object ),
-              reportedNeed: `${need} (reported — not a diagnosis)`,
-              phase: "OFFERED",
-              review: { status: "approved", lane: "scheduling", pathway: "Routine consult (approved booking rules)", reviewer: "Approved booking rules" },
-              history: n === 0 ? MEERA_HISTORY : [],
-              documents: n === 0 ? [...MEERA_DOCS] : [],
-            }),
-          ],
-          offers: buildOffers(),
-        };
-        s = log(s, "access agent", "Intake complete — earliest slots for the next 3 days shown. Staff gets involved only if none of them fit.");
+      const d = action.decision;
+      s = { ...s, chat: [...s.chat, { role: "agent", text: action.text }], lastIntake: d ?? s.lastIntake };
+      if (!d || s.intakeDone) return s;
+
+      // Deterministic routing gate: the model recommends a lane; the state machine
+      // decides which transitions that lane permits. (clarify → stay in conversation.)
+      switch (d.routingDecision) {
+        case "routine": {
+          s = { ...s, intakeDone: true };
+          const n = meeraVisits(s).length;
+          const id = n === 0 ? MEERA_ID : `${MEERA_ID}-${n + 1}`;
+          s = {
+            ...s,
+            patients: [
+              ...s.patients,
+              makeMeera({
+                ...( { id } as object ),
+                reportedNeed: `${d.patientReportedNeed ?? "New consultation request"} (reported — not a diagnosis)`,
+                constraintNote: d.schedulingConstraints ?? undefined,
+                phase: "OFFERED",
+                review: { status: "approved", lane: "scheduling", pathway: "Routine consult (approved booking rules)", reviewer: "Approved booking rules" },
+                history: n === 0 ? MEERA_HISTORY : [],
+                documents: n === 0 ? [...MEERA_DOCS] : [],
+              }),
+            ],
+            offers: getBookableSlots(),
+          };
+          return log(s, "routing gate", `Routine lane: bookable slots fetched from the availability adapter.${d.preferredClinicianMention ? ` Preference noted (${d.preferredClinicianMention}) — doctor remains availability-assigned for first visits.` : ""}`);
+        }
+        case "clinical_review": {
+          s = { ...s, intakeDone: true };
+          const n = meeraVisits(s).length;
+          const id = n === 0 ? MEERA_ID : `${MEERA_ID}-${n + 1}`;
+          s = {
+            ...s,
+            patients: [
+              ...s.patients,
+              makeMeera({
+                ...( { id } as object ),
+                reportedNeed: `${d.patientReportedNeed ?? "Request needing clinical review"} (reported — not a diagnosis)`,
+                constraintNote: d.schedulingConstraints ?? undefined,
+                phase: "AWAITING_CLINICAL_REVIEW",
+                review: { status: "pending", lane: "clinical", pathway: null, reviewer: null },
+                history: n === 0 ? MEERA_HISTORY : [],
+                documents: n === 0 ? [...MEERA_DOCS] : [],
+              }),
+            ],
+          };
+          s = addException(s, "Clinical review required (intake)", "Clinician on duty", "15 min", `Patient request routed to clinical review: "${d.patientReportedNeed}". No appointment offers until a clinician records a disposition.`, id, "Review the reported need; approve a routine pathway, request information, or escalate.");
+          return log(s, "routing gate", "Clinical-review lane: booking blocked until a clinician decides. Zero slots offered.");
+        }
+        case "emergency": {
+          s = { ...s, intakeDone: true };
+          s = addException(s, "EMERGENCY guidance given at intake", "Emergency team", "Immediate", `Intake conversation showed urgent danger signs: "${d.patientReportedNeed ?? "see transcript"}". Emergency instruction given; routine booking stopped.`, undefined, "Confirm the patient reached emergency care; follow up via the emergency team, not routine scheduling.");
+          return log(s, "routing gate", "Emergency lane: routine booking stopped; emergency instruction shown.");
+        }
+        case "clarify":
+        default:
+          return s; // stay in conversation
       }
-      return s;
     }
 
     case "CHAT_RESET":
       return {
         ...s,
         intakeDone: false,
-        intakeExtract: null,
+        lastIntake: null,
         offers: null,
         chat: [{ role: "agent", text: "What else can we help you book? Describe what you need — invented details only." }],
       };
 
     case "OPS_APPROVE_SCHEDULING": {
-      const m = patient(s, MEERA_ID);
-      if (!m || m.phase !== "AWAITING_SCHEDULING_APPROVAL") return s;
-      s = up(s, MEERA_ID, (p) => ({ ...p, phase: "OFFERED", review: { status: "approved", lane: "scheduling", pathway: "Routine orthopaedic consult", reviewer: "Operations" } }));
-      s = { ...s, offers: buildOffers(), staffActions: s.staffActions + 1, exceptions: s.exceptions.map((x) => (x.patientId === MEERA_ID && x.category.includes("Scheduling") ? { ...x, status: "resolved" } : x)) };
-      return log(s, "Operations", "Scheduling approved for Meera Shah (routine Orthopaedics). Feasible times offered.");
+      const m = meeraVisits(s).filter((p) => p.phase === "AWAITING_SCHEDULING_APPROVAL").slice(-1)[0];
+      if (!m) return s;
+      s = up(s, m.id, (p) => ({ ...p, phase: "OFFERED", review: { ...p.review, status: "approved", pathway: p.review.pathway ?? "Routine consult", reviewer: p.review.reviewer ?? "Operations" } }));
+      s = { ...s, offers: getBookableSlots(), staffActions: s.staffActions + 1, exceptions: s.exceptions.map((x) => (x.patientId === m.id && x.status === "open" && x.category.includes("Scheduling") ? { ...x, status: "resolved" } : x)) };
+      return log(s, "Operations", "Scheduling approved. Bookable slots fetched from the availability adapter and offered.");
     }
 
     case "CONFIRM_OFFER": {
@@ -561,7 +589,7 @@ export function reducer(state: FlowState, action: Action): FlowState {
       if (p.onHold) return log(s, "system", `Blocked start: ${p.name} is on hold (${p.onHold.reason}).`);
       const unresolved = p.readiness.find((t) => !["verified", "not_required"].includes(t.status));
       if (unresolved) return log(s, "system", `Blocked start: ${p.name} — ${unresolved.label} is ${unresolved.status}.`);
-      if (p.review.status !== "approved" && p.review.status !== "none") return log(s, "system", `Blocked start: ${p.name} has unresolved review.`);
+      if (p.review.status !== "approved") return log(s, "system", `Blocked start: ${p.name} does not have an approved pathway.`);
       const busy = s.patients.find((q) => q.clinicianId === p.clinicianId && q.phase === "IN_CONSULT");
       if (busy) return log(s, "system", `Blocked start: ${busy.name}'s consultation is still active.`);
       s = up(s, action.patientId, (q) => ({ ...q, phase: "IN_CONSULT", consultStartedAt: s.clock }));
@@ -664,9 +692,9 @@ export function reducer(state: FlowState, action: Action): FlowState {
         "Patient unhappy with offered slots",
         "Front desk",
         "Within 15 min",
-        "Meera Shah: none of the offered times work. Call to assess urgency — can she come in immediately?",
+        "Meera Shah: none of the offered times work. Call to understand her scheduling constraints; any medical concern routes to a clinician.",
         m.id,
-        "Call patient; assess urgency; if warranted, offer an immediate slot; otherwise waitlist with her constraints."
+        "Call patient; capture scheduling constraints; offer the earliest feasible slot or waitlist. Medical concerns → clinical review."
       );
       return log(s, "Meera Shah", "None of the offered slots work — asked to speak with staff.");
     }
@@ -687,71 +715,67 @@ export function reducer(state: FlowState, action: Action): FlowState {
         payments: [...q.payments, { id: "pay-consult", label: `First consultation fee — ${cname}`, amount: 600, status: "due" }],
       }));
       s = { ...s, offers: null, staffActions: s.staffActions + 1, exceptions: s.exceptions.map((x) => (x.patientId === m.id && x.status === "open" ? { ...x, status: "resolved" } : x)) };
-      return log(s, "front desk", `Called Meera, assessed urgency, and offered an immediate slot: ${cname} ${fmtWin(slot.window)} (accepted on call). Fee due to confirm.`);
+      return log(s, "front desk", `Scheduling callback complete: offered the earliest feasible slot — ${cname} ${fmtWin(slot.window)} (accepted on call). Fee due to confirm.`);
     }
 
     case "CANCEL_DOCTOR_SESSION": {
       const c = s.clinicians.find((x) => x.id === action.clinicianId);
       if (!c || s.cancelledDoctors.includes(action.clinicianId)) return s;
       s = bumpPlan({ ...s, cancelledDoctors: [...s.cancelledDoctors, action.clinicianId], staffActions: s.staffActions + 1 });
-      s = log(s, "Operations", `${c.name}'s remaining session cancelled. Working through every affected patient…`);
+      s = log(s, "Operations", `${c.name} is unavailable for the rest of the session. Drafting a recovery plan — nothing moves without approval and patient acceptance.`);
       const affected = s.patients.filter((p) => p.clinicianId === action.clinicianId && p.phase === "BOOKED");
-      let moved = 0, consent = 0, refunds = 0;
+      let drafted = 0, refunds = 0;
       for (const p of affected) {
-        if (p.patientType === "first_visit" || p.patientType === "walk_in") {
-          const slot = findFeasibleSlot(s);
-          if (slot) {
-            const nn = s.clinicians.find((x) => x.id === slot.clinicianId)?.name;
-            s = up(s, p.id, (q) => ({ ...q, clinicianId: slot.clinicianId, agreedWindow: slot.window }));
-            s = log(s, "engine", `${p.name} (first visit — doctor assigned by availability) moved to ${nn} ${fmtWin(slot.window)}; patient notified.`);
-            moved++;
-            continue;
-          }
+        const slot = findFeasibleSlot(s);
+        if (slot) {
+          const nn = s.clinicians.find((x) => x.id === slot.clinicianId)?.name;
+          const firstVisit = p.patientType === "first_visit" || p.patientType === "walk_in";
+          s = {
+            ...s,
+            proposals: [
+              ...s.proposals,
+              {
+                id: `prop-dc-${p.id}`,
+                createdAtVersion: s.planVersion,
+                sourceEvent: `${c.name}'s session cancelled`,
+                patientId: p.id,
+                kind: "doctor_change",
+                summary: `${p.name}: offer ${nn} ${fmtWin(slot.window)} (${c.name} unavailable)`,
+                beforeLabel: `${c.name} ${p.agreedWindow ? fmtWin(p.agreedWindow) : ""}`,
+                afterLabel: `${nn} ${fmtWin(slot.window)}`,
+                newAgreedWindow: slot.window,
+                newClinicianId: slot.clinicianId,
+                facts: firstVisit
+                  ? [
+                      `${c.name} is unavailable for the rest of the session.`,
+                      `${p.name} is a ${p.patientType === "walk_in" ? "walk-in" : "first visit"} — the doctor is availability-assigned, but the time change still needs their acceptance.`,
+                      `Message drafted: "Hello ${p.name}, your doctor today is unavailable. Your consultation can move to ${nn} at ${fmt(slot.window[0])} — reply 1 to accept, 2 for other options. Your payment carries over."`,
+                    ]
+                  : [
+                      `${c.name} is unavailable for the rest of the session.`,
+                      `${p.name} is a follow-up patient — changing their doctor needs their explicit consent.`,
+                      `Message drafted: "Hello ${p.name}, ${c.name} is unavailable today. You can see ${nn} at ${fmt(slot.window[0])} instead, or reschedule with ${c.name} another day — your payment carries over either way. Reply 1 or 2."`,
+                      `If they must see ${c.name} only: reschedule to the doctor's next session; cancellation + refund is the last resort.`,
+                    ],
+                requires: "Operations approval, then patient acceptance",
+                status: "pending_staff",
+              },
+            ],
+          };
+          drafted++;
         } else {
-          const slot = findFeasibleSlot(s);
-          if (slot) {
-            const nn = s.clinicians.find((x) => x.id === slot.clinicianId)?.name;
-            s = {
-              ...s,
-              proposals: [
-                ...s.proposals,
-                {
-                  id: `prop-dc-${p.id}`,
-                  createdAtVersion: s.planVersion,
-                  sourceEvent: `${c.name}'s session cancelled`,
-                  patientId: p.id,
-                  kind: "doctor_change",
-                  summary: `${p.name}: offer ${nn} ${fmtWin(slot.window)} (their doctor cancelled)`,
-                  beforeLabel: `${c.name} ${p.agreedWindow ? fmtWin(p.agreedWindow) : ""}`,
-                  afterLabel: `${nn} ${fmtWin(slot.window)}`,
-                  newAgreedWindow: slot.window,
-                  newClinicianId: slot.clinicianId,
-                  facts: [
-                    `${c.name} is unavailable for the rest of the session.`,
-                    `${p.name} is a follow-up patient — changing their doctor needs their consent.`,
-                    `Message drafted: "Hello ${p.name}, ${c.name} is unavailable today. You can see ${nn} at ${fmtWin(slot.window)} instead, or reschedule with ${c.name} on another day — your payment carries over either way. Reply 1 or 2."`,
-                    "If they must see this doctor only: reschedule to the doctor's next session; cancellation + refund is the last resort.",
-                  ],
-                  requires: "Operations approval, then patient consent",
-                  status: "pending_staff",
-                },
-              ],
-            };
-            consent++;
-            continue;
-          }
+          s = up(s, p.id, (q) => ({ ...q, phase: "CANCELLED", payments: q.payments.map((pm) => (pm.status === "paid" ? { ...pm, status: "refunded" } : pm)) }));
+          refunds++;
         }
-        s = up(s, p.id, (q) => ({ ...q, phase: "CANCELLED", payments: q.payments.map((pm) => (pm.status === "paid" ? { ...pm, status: "refunded" } : pm)) }));
-        refunds++;
       }
       s = addException(
         s,
         `Doctor session cancelled — ${c.name}`,
         "Operations",
         "Before end of day",
-        `${affected.length} patient(s) affected: ${moved} first-visit(s) auto-reassigned (doctor is availability-assigned), ${consent} follow-up(s) need consent for a doctor change, ${refunds} refunded (no feasible slot).`,
+        `${affected.length} patient(s) affected: ${drafted} recovery proposal(s) drafted (approve, then patients accept), ${refunds} refunded (no feasible slot).`,
         undefined,
-        "Confirm consents; call refunded patients with next-day options; record reason for the cancellation."
+        "Approve the drafted proposals; record phone acceptances for assisted patients; call refunded patients with next-day options."
       );
       return s;
     }
@@ -764,22 +788,45 @@ export function reducer(state: FlowState, action: Action): FlowState {
       const busiest = sorted[0];
       const lightest = sorted[sorted.length - 1];
       if (load[busiest.id] - load[lightest.id] < 30) {
-        return log(s, "Operations", `First-visit load already balanced (${busiest.name} ${load[busiest.id]}m vs ${lightest.name} ${load[lightest.id]}m).`);
+        return log(s, "Operations", `Load already balanced (${busiest.name} ${load[busiest.id]}m vs ${lightest.name} ${load[lightest.id]}m). No plan needed.`);
       }
       const movable = s.patients
-        .filter((p) => p.clinicianId === busiest.id && p.phase === "BOOKED" && p.patientType === "first_visit" && p.arrival === "NOT_ARRIVED")
+        .filter((p) => p.clinicianId === busiest.id && p.phase === "BOOKED" && p.patientType === "first_visit" && p.arrival === "NOT_ARRIVED" && !p.onHold)
         .sort((a, b) => (b.agreedWindow?.[0] ?? 0) - (a.agreedWindow?.[0] ?? 0));
-      if (movable.length === 0) return log(s, "Operations", `No movable first-visit patients on ${busiest.name}'s list (follow-ups keep their doctor).`);
+      if (movable.length === 0) return log(s, "Operations", `No movable first-visit patients on ${busiest.name}'s list (follow-ups keep their doctor; arrived patients stay).`);
       s = bumpPlan({ ...s, staffActions: s.staffActions + 1 });
       let n = 0;
       for (const p of movable.slice(0, 2)) {
         const slot = findFeasibleSlot(s, lightest.id);
         if (!slot) break;
-        s = up(s, p.id, (q) => ({ ...q, clinicianId: lightest.id, agreedWindow: slot.window }));
-        s = log(s, "engine", `${p.name} reassigned ${busiest.name} → ${lightest.name} ${fmtWin(slot.window)} (first visits are doctor-assigned; patient notified of the new time).`);
+        s = {
+          ...s,
+          proposals: [
+            ...s.proposals,
+            {
+              id: `prop-lb-${p.id}`,
+              createdAtVersion: s.planVersion,
+              sourceEvent: "Load-balancing plan",
+              patientId: p.id,
+              kind: "doctor_change",
+              summary: `${p.name}: move to ${lightest.name} ${fmtWin(slot.window)} (load balancing)`,
+              beforeLabel: `${busiest.name} ${p.agreedWindow ? fmtWin(p.agreedWindow) : ""}`,
+              afterLabel: `${lightest.name} ${fmtWin(slot.window)}`,
+              newAgreedWindow: slot.window,
+              newClinicianId: lightest.id,
+              facts: [
+                `${busiest.name} has ${load[busiest.id]} booked minutes remaining vs ${lightest.name}'s ${load[lightest.id]} — the imbalance delays ${busiest.name}'s later patients.`,
+                `${p.name} is a first visit (doctor availability-assigned) and has not arrived — the move needs only their acceptance of the new time.`,
+                `Message drafted: "Hello ${p.name}, we can see you earlier/on-time at ${fmt(slot.window[0])} with ${lightest.name}. Reply 1 to accept, 2 to keep your current time."`,
+              ],
+              requires: "Operations approval, then patient acceptance",
+              status: "pending_staff",
+            },
+          ],
+        };
         n++;
       }
-      return log(s, "Operations", `Bandwidth rebalance: ${n} first-visit patient(s) moved from ${busiest.name} (${load[busiest.id]}m booked) to ${lightest.name} (${load[lightest.id]}m booked).`);
+      return log(s, "engine", `Load-balancing plan drafted: ${n} proposal(s) in Approvals. Nothing moves without approval and patient acceptance.`);
     }
 
     case "EMERGENCY_WALKIN": {
@@ -861,7 +908,7 @@ export function reducer(state: FlowState, action: Action): FlowState {
 
 const StoreCtx = createContext<{ state: FlowState; dispatch: React.Dispatch<Action> } | null>(null);
 
-import { getSessionId, getTester } from "./session";
+import { getSessionId } from "./session";
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, () => {
@@ -894,7 +941,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     fetch("/api/telemetry", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: getSessionId(), tester: getTester(), events: fresh }),
+      body: JSON.stringify({ sessionId: getSessionId(), events: fresh }),
       keepalive: true,
     }).catch(() => {});
   }, [state.events]);

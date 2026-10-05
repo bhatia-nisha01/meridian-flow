@@ -6,7 +6,6 @@ export const dynamic = "force-dynamic";
 interface LogRecord {
   kind: string;
   sessionId: string;
-  tester: string;
   at: string;
   payload: unknown;
 }
@@ -47,12 +46,12 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
       {[...sessions.entries()].map(([sid, recs]) => (
         <div key={sid} className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
           <div className="font-semibold mb-2">
-            {recs.find((r) => r.tester)?.tester || "Anonymous"} <span className="text-slate-400 font-normal text-xs">· {sid} · first seen {recs[0]?.at?.slice(0, 16).replace("T", " ")}</span>
+            {sid} <span className="text-slate-400 font-normal text-xs">· first seen {recs[0]?.at?.slice(0, 16).replace("T", " ")}</span>
           </div>
           {recs.map((r, i) => (
             <div key={i} className="border-t border-slate-100 py-2">
               {r.kind === "intake" ? (
-                <IntakeBlock payload={r.payload as { conversation: { role: string; content: string }[]; reply: { assistantMessage?: string; intakeComplete?: boolean; requiresStaffReview?: boolean } }} at={r.at} />
+                <IntakeBlock payload={r.payload as { conversation: { role: string; content: string }[]; decision?: { assistantMessage?: string; routingDecision?: string }; reply?: { assistantMessage?: string } }} at={r.at} />
               ) : (
                 <ActionsBlock payload={r.payload as { actor: string; text: string }[]} at={r.at} />
               )}
@@ -65,16 +64,17 @@ export default async function ReviewPage({ searchParams }: { searchParams: Promi
   );
 }
 
-function IntakeBlock({ payload, at }: { payload: { conversation: { role: string; content: string }[]; reply: { assistantMessage?: string } }; at: string }) {
+function IntakeBlock({ payload, at }: { payload: { conversation: { role: string; content: string }[]; decision?: { assistantMessage?: string; routingDecision?: string }; reply?: { assistantMessage?: string } }; at: string }) {
   const lastUser = [...(payload.conversation ?? [])].reverse().find((m) => m.role === "user");
+  const d = payload.decision ?? payload.reply;
   return (
     <div>
-      <div className="text-[10px] text-slate-400">{at.slice(11, 19)} · conversation turn</div>
-      <div className="mt-1"><span className="font-medium text-blue-700">Tester:</span> {lastUser?.content}</div>
-      <div className="mt-0.5"><span className="font-medium text-emerald-700">Agent:</span> {payload.reply?.assistantMessage}</div>
+      <div className="text-[10px] text-slate-400">{at.slice(11, 19)} · conversation turn{payload.decision?.routingDecision ? ` · lane: ${payload.decision.routingDecision}` : ""}</div>
+      <div className="mt-1"><span className="font-medium text-blue-700">Visitor:</span> {lastUser?.content}</div>
+      <div className="mt-0.5"><span className="font-medium text-emerald-700">Agent:</span> {d?.assistantMessage}</div>
       <details className="text-xs text-slate-500 mt-1">
-        <summary className="cursor-pointer">Full extraction</summary>
-        <pre className="bg-slate-50 rounded p-2 overflow-x-auto text-[10px]">{JSON.stringify(payload.reply, null, 2)}</pre>
+        <summary className="cursor-pointer">Full decision</summary>
+        <pre className="bg-slate-50 rounded p-2 overflow-x-auto text-[10px]">{JSON.stringify(d, null, 2)}</pre>
       </details>
     </div>
   );
