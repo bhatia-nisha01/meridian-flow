@@ -8,6 +8,13 @@ import { MEERA_ID } from "@/lib/seed";
 
 type OpsTab = "approvals" | "clinic" | "tasks" | "money";
 
+const TAB_CAPTIONS: Record<OpsTab, string> = {
+  approvals: "Decisions waiting for your yes/no — scheduling requests and change proposals, each with the reason attached. Nothing moves without approval.",
+  clinic: "Everyone due today, sorted by who needs action first (red = past their time, amber = due now). Use Actions ▾ on a row to check in, call, or hold.",
+  tasks: "Every exception in one list — each has an owner, a deadline, and a stated next step.",
+  money: "Payments due at the desk and uploaded reports waiting to be linked.",
+};
+
 export default function OperationsView() {
   const { state, dispatch } = useStore();
   const [tab, setTab] = useState<OpsTab>("approvals");
@@ -16,11 +23,50 @@ export default function OperationsView() {
   const approvalsCount =
     state.patients.filter((p) => p.phase === "AWAITING_SCHEDULING_APPROVAL").length +
     state.proposals.filter((p) => p.status === "pending_staff" || p.status === "awaiting_patient").length;
+  const clinicalCount = state.patients.filter((p) => p.phase === "AWAITING_CLINICAL_REVIEW").length;
   const tasksCount = state.exceptions.filter((x) => x.status === "open").length;
   const moneyCount = state.patients.reduce((a, p) => a + p.payments.filter((pm) => pm.status === "due").length, 0) + state.recordsQueue.filter((r) => !r.linked).length;
 
+  // How many patients on today's board need desk action right now (mirrors the
+  // rank-0 conditions in ClinicBoard).
+  const needsActionNow =
+    state.simPhase === "clinic"
+      ? state.patients.filter((p) => {
+          if (p.phase === "CANCELLED" || p.onHold) return false;
+          if (p.visitDate && p.visitDate !== "Tue 6 Oct") return false;
+          const win = p.agreedWindow;
+          const notArrivedDue = p.phase === "BOOKED" && !!win && p.arrival !== "ARRIVED" && state.clock >= win[0] - ARRIVE_EARLY;
+          const readinessPending = p.arrival === "ARRIVED" && p.readiness.some((t) => ["needed", "provided", "blocked"].includes(t.status));
+          const payDue = p.arrival === "ARRIVED" && p.payments.some((pm) => pm.status === "due");
+          return notArrivedDue || readinessPending || payDue;
+        }).length
+      : 0;
+
+  // One-line orientation: the single most urgent place to look, with a jump.
+  const opsHint: { text: string; go?: OpsTab; goLabel?: string } =
+    needsActionNow > 0
+      ? { text: `${needsActionNow} patient${needsActionNow > 1 ? "s" : ""} on today's board need${needsActionNow > 1 ? "" : "s"} action right now — the Next action column on each row tells you exactly what to do.`, go: "clinic", goLabel: "Open Today's clinic" }
+      : approvalsCount + clinicalCount > 0
+      ? { text: `${approvalsCount + clinicalCount} decision${approvalsCount + clinicalCount > 1 ? "s are" : " is"} waiting — nothing moves until you approve (and the patient accepts).`, go: "approvals", goLabel: "Open Approvals" }
+      : state.simPhase === "booking"
+      ? { text: "The clinic day hasn't started yet. New booking requests land in Approvals; to see the day in motion, go to 🧑 Patient and press ⏭ Jump to clinic day." }
+      : tasksCount > 0
+      ? { text: `${tasksCount} open task${tasksCount > 1 ? "s" : ""} — each has an owner, a deadline, and a next step.`, go: "tasks", goLabel: "Open Tasks" }
+      : { text: "All quiet. Fire a scenario below (🚨 emergency arrival, a doctor delay, a cancellation) to watch the system respond." };
+
   return (
     <div className="space-y-4">
+      {/* Orientation: where to look first */}
+      <div className="flex items-center justify-between gap-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-3.5 py-2 text-sm">
+        <div>
+          <span className="font-semibold">Start here:</span> {opsHint.text}
+        </div>
+        {opsHint.go && tab !== opsHint.go && (
+          <button onClick={() => setTab(opsHint.go!)} className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">
+            {opsHint.goLabel}
+          </button>
+        )}
+      </div>
       {/* Outcome strip */}
       <div className="grid grid-cols-5 gap-3">
         <Kpi label="Median onsite wait (forecast)" value={`${m.medianWait}m`} sub="synthetic forecast" />
@@ -40,6 +86,8 @@ export default function OperationsView() {
         <QTab label={`Tasks ${tasksCount ? `(${tasksCount})` : ""}`} active={tab === "tasks"} onClick={() => setTab("tasks")} />
         <QTab label={`Money & records ${moneyCount ? `(${moneyCount})` : ""}`} active={tab === "money"} onClick={() => setTab("money")} />
       </div>
+
+      <div className="text-xs text-slate-500 -mt-2 px-0.5">{TAB_CAPTIONS[tab]}</div>
 
       {tab === "approvals" && <ApprovalsQueue />}
       {tab === "clinic" && <ClinicBoard />}
@@ -446,7 +494,7 @@ function Simulator() {
   const { state, dispatch } = useStore();
   return (
     <div className="bg-white rounded-xl border border-dashed border-slate-300 p-3 text-xs">
-      <span className="font-semibold text-slate-500 mr-2">Scenario controls (simulation):</span>
+      <span className="font-semibold text-slate-500 mr-2" title="These buttons fire disruptions so you can watch the system recover — they are part of the demo, not the product">Scenario controls — make something go wrong, watch the recovery:</span>
       <span className="inline-flex flex-wrap gap-1.5">
         <SBtn onClick={() => dispatch({ type: "CLINICIAN_DELAY", clinicianId: "dr-mehta", minutes: 35, reason: "earlier case overran" })} label="Dr Mehta +35 min" />
         <SBtn onClick={() => dispatch({ type: "WALKIN_ARRIVES", which: "routine" })} label="Routine walk-in (Tara)" />
