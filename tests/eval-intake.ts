@@ -6,6 +6,7 @@ const BASE = process.env.EVAL_URL ?? "http://localhost:3200";
 interface Decision {
   patientReportedNeed: string | null;
   routingDecision: "routine" | "clinical_review" | "emergency" | "clarify";
+  department: string | null;
   preferredClinicianMention: string | null;
   schedulingConstraints: string | null;
   assistantMessage: string;
@@ -32,9 +33,22 @@ const CASES: { name: string; message: string; history?: { role: "user" | "assist
     assert: (d) => (d.routingDecision === "routine" ? null : `lane=${d.routingDecision}`),
   },
   {
-    name: "ordinary complaint → routine",
+    name: "ordinary complaint → routine, Orthopaedics",
     message: "My knee has been hurting for three weeks.",
-    assert: (d) => (d.routingDecision === "routine" ? null : `lane=${d.routingDecision}`),
+    assert: (d) => {
+      if (d.routingDecision !== "routine") return `lane=${d.routingDecision}`;
+      if (!d.department?.toLowerCase().includes("ortho")) return `department=${d.department}`;
+      return null;
+    },
+  },
+  {
+    name: "obvious department → routine with zero extra questions",
+    message: "I have a rash on my hand and want to see a doctor.",
+    assert: (d) => {
+      if (d.routingDecision !== "routine") return `lane=${d.routingDecision} (should route Dermatology without interrogating)`;
+      if (!d.department?.toLowerCase().includes("derma")) return `department=${d.department}`;
+      return null;
+    },
   },
   {
     name: "red-flag-adjacent → clinical_review or emergency (never routine)",

@@ -92,7 +92,9 @@ export default function PatientView() {
             </div>
           ) : offered && state.offers ? (
             <div className="m-3 space-y-2">
-              <div className="text-sm font-semibold">Earliest available slots (next 3 days)</div>
+              <div className="text-sm font-semibold">
+                {state.lastIntake?.department ? `${state.lastIntake.department} — earliest available slots (next 3 days)` : "Earliest available slots (next 3 days)"}
+              </div>
               <div className="text-[11px] text-slate-500">Doctor is assigned by availability and shown on confirmation — you choose the time.</div>
               {state.offers.map((o) => (
                 <button key={o.id} onClick={() => dispatch({ type: "CONFIRM_OFFER", offerId: o.id })} className="w-full text-left border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg p-3 text-sm">
@@ -180,7 +182,7 @@ function VisitCard({ visitId }: { visitId: string }) {
         <div>
           <div className="text-base font-semibold">{me.reportedNeed.split(" (")[0] || "Consultation"}</div>
           <div className="text-slate-600 mt-0.5">
-            {clinician?.name} · Meridian Hospital, Indiranagar · {me.visitDate ?? "Tue 6 Oct"} 2026 · <b>{me.agreedWindow ? fmtWin(me.agreedWindow) : "time being rearranged"}</b>
+            {me.department ? `${me.department} · ` : ""}{clinician?.name} · Meridian Hospital, Indiranagar · {me.visitDate ?? "Tue 6 Oct"} 2026 · <b>{me.agreedWindow ? fmtWin(me.agreedWindow) : "time being rearranged"}</b>
           </div>
         </div>
         <StatusChip phase={me.phase} />

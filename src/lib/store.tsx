@@ -154,9 +154,10 @@ export function reducer(state: FlowState, action: Action): FlowState {
               makeMeera({
                 ...( { id } as object ),
                 reportedNeed: `${d.patientReportedNeed ?? "New consultation request"} (reported — not a diagnosis)`,
+                department: d.department ?? undefined,
                 constraintNote: d.schedulingConstraints ?? undefined,
                 phase: "OFFERED",
-                review: { status: "approved", lane: "scheduling", pathway: "Routine consult (approved booking rules)", reviewer: "Approved booking rules" },
+                review: { status: "approved", lane: "scheduling", pathway: `${d.department ?? "Routine"} consult (approved booking rules)`, reviewer: "Approved booking rules" },
                 history: n === 0 ? MEERA_HISTORY : [],
                 documents: n === 0 ? [...MEERA_DOCS] : [],
               }),
@@ -176,6 +177,7 @@ export function reducer(state: FlowState, action: Action): FlowState {
               makeMeera({
                 ...( { id } as object ),
                 reportedNeed: `${d.patientReportedNeed ?? "Request needing clinical review"} (reported — not a diagnosis)`,
+                department: d.department ?? undefined,
                 constraintNote: d.schedulingConstraints ?? undefined,
                 phase: "AWAITING_CLINICAL_REVIEW",
                 review: { status: "pending", lane: "clinical", pathway: null, reviewer: null },

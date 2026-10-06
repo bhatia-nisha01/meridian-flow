@@ -66,6 +66,7 @@ export interface PatientRecord {
   id: string;
   name: string;
   patientType: PatientType;
+  department?: string; // OPD department identified at intake
   token?: string;
   clinicianId: string | null;
   originalWindow: [number, number] | null; // immutable promise
@@ -151,6 +152,7 @@ export type RoutingDecision = "routine" | "clinical_review" | "emergency" | "cla
 export interface IntakeDecision {
   patientReportedNeed: string | null;
   routingDecision: RoutingDecision;
+  department: string | null;
   preferredClinicianMention: string | null;
   schedulingConstraints: string | null;
   assistantMessage: string;

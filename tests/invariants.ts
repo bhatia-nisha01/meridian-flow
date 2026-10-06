@@ -16,6 +16,7 @@ const D = (s: FlowState, a: Action) => reducer(s, a);
 const decision = (routingDecision: IntakeDecision["routingDecision"], need = "Knee pain, 3 weeks"): IntakeDecision => ({
   patientReportedNeed: need,
   routingDecision,
+  department: "Orthopaedics",
   preferredClinicianMention: null,
   schedulingConstraints: null,
   assistantMessage: "ok",
