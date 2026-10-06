@@ -229,8 +229,7 @@ function ClinicBoard() {
               <th className="pr-2">Forecast</th>
               <th className="pr-2">Arrival</th>
               <th className="pr-2">Call</th>
-              <th className="pr-2">Next action</th>
-              <th></th>
+              <th className="text-right">Next action</th>
             </tr>
           </thead>
           <tbody>
@@ -290,9 +289,12 @@ function ClinicBoard() {
                   <td className="pr-2">
                     {p.confirmationCall === "confirmed" ? "✓" : p.confirmationCall === "no_answer" ? "no answer" : p.confirmationCall === "callback_requested" ? "callback" : p.confirmationCall === "cannot_attend" ? "can't attend" : "—"}
                   </td>
-                  <td className="pr-2 text-[11px]">{action}</td>
-                  <td className="whitespace-nowrap">
-                    {p.phase !== "CANCELLED" && <ActionsMenu patientId={p.id} dueForNudge={!!dueSoon} nonArrival={!!overdue} />}
+                  <td className="py-1 text-right">
+                    {p.phase !== "CANCELLED" ? (
+                      <ActionsMenu patientId={p.id} dueForNudge={!!dueSoon} nonArrival={!!overdue} fallback={action} />
+                    ) : (
+                      <span className="text-[11px] text-slate-400">{action}</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -531,40 +533,82 @@ function EventFeed() {
   );
 }
 
-function ActionsMenu({ patientId, dueForNudge, nonArrival }: { patientId: string; dueForNudge: boolean; nonArrival: boolean }) {
+// One cell that answers "what do I do with this patient?":
+// the recommended action is a one-click button; everything else sits in
+// "More ▾", where every item explains what it does. No action → plain status text.
+function ActionsMenu({ patientId, dueForNudge, nonArrival, fallback }: { patientId: string; dueForNudge: boolean; nonArrival: boolean; fallback: string }) {
   const { state, dispatch } = useStore();
   const p = state.patients.find((x) => x.id === patientId)!;
   const [open, setOpen] = useState(false);
 
-  const items: { label: string; danger?: boolean; fn: () => void }[] = [];
-  if (state.simPhase === "clinic" && p.arrival !== "ARRIVED" && p.phase === "BOOKED") items.push({ label: "✓ Check in (issue token)", fn: () => dispatch({ type: "CHECK_IN", patientId }) });
-  if (p.readiness.some((t) => ["needed", "provided"].includes(t.status)) && ["BOOKED"].includes(p.phase)) items.push({ label: "☑ Verify readiness", fn: () => dispatch({ type: "VERIFY_ALL_TASKS", patientId }) });
+  const readinessPending = p.readiness.some((t) => ["needed", "provided"].includes(t.status));
+  const duePayment = p.payments.find((pm) => pm.status === "due");
+
+  const items: { key: string; label: string; desc: string; danger?: boolean; fn: () => void }[] = [];
+  if (state.simPhase === "clinic" && p.arrival !== "ARRIVED" && p.phase === "BOOKED")
+    items.push({ key: "checkin", label: "✓ Check in (issue token)", desc: "Patient is at the desk — marks them arrived and issues their token", fn: () => dispatch({ type: "CHECK_IN", patientId }) });
+  if (readinessPending && p.phase === "BOOKED")
+    items.push({ key: "verify", label: "☑ Verify readiness", desc: "Confirm their checklist (reports, fasting, forms) so the doctor can call them", fn: () => dispatch({ type: "VERIFY_ALL_TASKS", patientId }) });
+  if (duePayment && p.arrival === "ARRIVED" && p.phase === "BOOKED")
+    items.push({ key: "pay", label: "₹ Collect payment at desk", desc: `Collect the due ${rupees(duePayment.amount)} (simulated) so the visit can proceed`, fn: () => dispatch({ type: "PAY", patientId, paymentId: duePayment.id }) });
   if (p.phase === "BOOKED" && !p.onHold && p.arrival === "ARRIVED" && p.readiness.some((t) => !["verified", "not_required"].includes(t.status)))
-    items.push({ label: "⏸ Put on hold — arranging checklist item", fn: () => dispatch({ type: "HOLD_PATIENT", patientId, reason: p.readiness.find((t) => !["verified", "not_required"].includes(t.status))?.label ?? "pending item" }) });
-  if (p.phase === "BOOKED" && !p.onHold) items.push({ label: "⏸ Put on hold — other reason", fn: () => dispatch({ type: "HOLD_PATIENT", patientId, reason: "patient arranging a pending item" }) });
-  if (p.onHold) items.push({ label: "▶ Release hold (patient is back & ready)", fn: () => { dispatch({ type: "RELEASE_HOLD", patientId }); dispatch({ type: "VERIFY_ALL_TASKS", patientId }); } });
-  if (dueForNudge && !p.callTranscript) items.push({ label: "📞 Call: are you coming?", fn: () => dispatch({ type: "SEND_ARRIVAL_NUDGE", patientId }) });
-  if (nonArrival && !p.nonArrivalFlagged) items.push({ label: "⚑ Flag non-arrival", danger: true, fn: () => dispatch({ type: "FLAG_NON_ARRIVAL", patientId }) });
-  if (items.length === 0) return <span className="text-[11px] text-slate-300">—</span>;
+    items.push({ key: "hold1", label: "⏸ Put on hold — arranging checklist item", desc: "Keeps their place while they sort it out; the queue isn't blocked", fn: () => dispatch({ type: "HOLD_PATIENT", patientId, reason: p.readiness.find((t) => !["verified", "not_required"].includes(t.status))?.label ?? "pending item" }) });
+  if (p.phase === "BOOKED" && !p.onHold)
+    items.push({ key: "hold2", label: "⏸ Put on hold — other reason", desc: "Keeps their place without blocking the queue", fn: () => dispatch({ type: "HOLD_PATIENT", patientId, reason: "patient arranging a pending item" }) });
+  if (p.onHold)
+    items.push({ key: "release", label: "▶ Release hold", desc: "They're back and ready — rejoin the queue", fn: () => { dispatch({ type: "RELEASE_HOLD", patientId }); dispatch({ type: "VERIFY_ALL_TASKS", patientId }); } });
+  if (dueForNudge && !p.callTranscript)
+    items.push({ key: "call", label: "📞 Call: are you coming?", desc: "Simulated call asking if they're on their way, and when", fn: () => dispatch({ type: "SEND_ARRIVAL_NUDGE", patientId }) });
+  if (nonArrival && !p.nonArrivalFlagged)
+    items.push({ key: "flag", label: "⚑ Flag non-arrival", desc: "Marks a no-show for desk follow-up — nothing is auto-cancelled", danger: true, fn: () => dispatch({ type: "FLAG_NON_ARRIVAL", patientId }) });
+
+  // Recommended action = the same priority order the board uses for its row ranking.
+  const primaryKey =
+    nonArrival && !p.nonArrivalFlagged ? "flag"
+    : dueForNudge && !p.callTranscript ? "call"
+    : p.arrival === "ARRIVED" && readinessPending && p.phase === "BOOKED" ? "verify"
+    : duePayment && p.arrival === "ARRIVED" && p.phase === "BOOKED" && !readinessPending ? "pay"
+    : p.onHold ? "release"
+    : null;
+  const primary = items.find((i) => i.key === primaryKey);
+  const rest = items.filter((i) => i !== primary);
+
+  if (items.length === 0) return <span className="text-[11px] text-slate-500">{fallback}</span>;
   return (
-    <span className="relative inline-block">
-      <button onClick={() => setOpen((v) => !v)} className="text-[11px] border border-slate-300 rounded px-2 py-0.5 text-slate-600 hover:bg-slate-50">
-        Actions ▾
-      </button>
-      {open && (
-        <span className="absolute right-0 z-20 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg block">
-          {items.map((it, i) => (
-            <button
-              key={i}
-              onClick={() => {
-                setOpen(false);
-                it.fn();
-              }}
-              className={`block w-full text-left text-[11px] px-3 py-1.5 hover:bg-slate-50 ${it.danger ? "text-red-600" : "text-slate-700"}`}
-            >
-              {it.label}
-            </button>
-          ))}
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      {primary ? (
+        <button
+          onClick={primary.fn}
+          title={primary.desc}
+          className={`text-[11px] font-semibold rounded px-2 py-1 text-white ${primary.danger ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"}`}
+        >
+          {primary.label}
+        </button>
+      ) : (
+        <span className="text-[11px] text-slate-500">{fallback}</span>
+      )}
+      {rest.length > 0 && (
+        <span className="relative inline-block">
+          <button onClick={() => setOpen((v) => !v)} className="text-[11px] border border-slate-300 rounded px-2 py-1 text-slate-600 hover:bg-slate-50">
+            {primary ? "More ▾" : "Actions ▾"}
+          </button>
+          {open && (
+            <span className="absolute right-0 z-20 mt-1 w-80 bg-white border border-slate-200 rounded-lg shadow-lg block whitespace-normal">
+              {rest.map((it) => (
+                <button
+                  key={it.key}
+                  onClick={() => {
+                    setOpen(false);
+                    it.fn();
+                  }}
+                  className="block w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                >
+                  <span className={`block text-[11px] font-medium ${it.danger ? "text-red-600" : "text-slate-700"}`}>{it.label}</span>
+                  <span className="block text-[10px] text-slate-400">{it.desc}</span>
+                </button>
+              ))}
+            </span>
+          )}
         </span>
       )}
     </span>
