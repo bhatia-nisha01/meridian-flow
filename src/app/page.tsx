@@ -10,13 +10,16 @@ import { fmt, FlowState } from "@/lib/types";
 import { getRole } from "@/lib/session";
 
 // One line telling a first-time tester what to do next; first match wins.
+// The Operations tab orients itself with its own banner, so no global hint there.
 function nextHint(state: FlowState, tab: string): string | null {
+  if (tab === "ops") return null;
   const meera = state.patients.filter((p) => p.id.startsWith("p-meera"));
-  if (meera.some((p) => p.phase === "AWAITING_PAYMENT")) return "Pay (simulated) to confirm your booking.";
+  const onPatient = tab === "patient";
+  if (meera.some((p) => p.phase === "AWAITING_PAYMENT")) return onPatient ? "Pay (simulated) to confirm your booking." : "Pay (simulated) on the 🧑 Patient tab to confirm your booking.";
   if (meera.some((p) => p.phase === "AWAITING_CLINICAL_REVIEW")) return "A clinician must review this request — open the 🩺 Clinician tab and act as the reviewer.";
-  if (state.simPhase === "booking" && meera.length === 0) return "Start here: tell the assistant what you need in the chat below.";
+  if (state.simPhase === "booking" && meera.length === 0) return onPatient ? "Start here: tell the assistant what you need in the chat below." : "Start on the 🧑 Patient tab — book a visit by telling the assistant what you need.";
   if (state.simPhase === "booking" && meera.some((p) => p.phase === "BOOKED")) return "Your visit is booked. Press ⏭ Jump to clinic day (top bar) to see the clinic running.";
-  if (state.simPhase !== "booking" && tab === "patient") return "Now run the clinic: open 🏥 Operations to check patients in, or 🩺 Clinician to consult.";
+  if (state.simPhase !== "booking" && onPatient) return "Now run the clinic: open 🏥 Operations to check patients in, or 🩺 Clinician to consult.";
   return null;
 }
 
