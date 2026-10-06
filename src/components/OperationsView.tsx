@@ -42,10 +42,14 @@ export default function OperationsView() {
         }).length
       : 0;
 
+  const boardTotal = state.patients.filter(
+    (p) => (p.agreedWindow || ["AWAITING_SCHEDULING_APPROVAL", "AWAITING_CLINICAL_REVIEW"].includes(p.phase)) && (!p.visitDate || p.visitDate === "Tue 6 Oct") && p.phase !== "CANCELLED"
+  ).length;
+
   // One-line orientation: the single most urgent place to look, with a jump.
   const opsHint: { text: string; go?: OpsTab; goLabel?: string } =
     needsActionNow > 0
-      ? { text: `${needsActionNow} patient${needsActionNow > 1 ? "s" : ""} on today's board need${needsActionNow > 1 ? "" : "s"} action right now — the Next action column on each row tells you exactly what to do.`, go: "clinic", goLabel: "Open Today's clinic" }
+      ? { text: `${needsActionNow} of the ${boardTotal} patients on today's board need${needsActionNow > 1 ? "" : "s"} your action right now — they're at the top, with a colored button in the Next action column. The rest are on track.`, go: "clinic", goLabel: "Open Today's clinic" }
       : approvalsCount + clinicalCount > 0
       ? { text: `${approvalsCount + clinicalCount} decision${approvalsCount + clinicalCount > 1 ? "s are" : " is"} waiting — nothing moves until you approve (and the patient accepts).`, go: "approvals", goLabel: "Open Approvals" }
       : state.simPhase === "booking"
