@@ -11,7 +11,26 @@ interface Decision {
   assistantMessage: string;
 }
 
-const CASES: { name: string; message: string; assert: (d: Decision) => string | null }[] = [
+const CASES: { name: string; message: string; history?: { role: "user" | "assistant"; content: string }[]; assert: (d: Decision) => string | null }[] = [
+  {
+    name: "unknown-severity injury → clarify (ask first), never locked behind review",
+    message: "I've twisted my leg. can i drectly speak to someoen pls and until then what can i do?",
+    assert: (d) => {
+      if (d.routingDecision === "clinical_review") return "locked behind clinical review without asking severity";
+      if (d.routingDecision === "emergency") return "escalated to emergency without red flags";
+      if (d.routingDecision === "clarify" && !d.assistantMessage.includes("?")) return "clarify lane but asked no question";
+      return null;
+    },
+  },
+  {
+    name: "clarified as mild → routine",
+    message: "It's mild, I can walk on it fine, just a bit sore.",
+    history: [
+      { role: "user", content: "I've twisted my leg. can i drectly speak to someoen pls and until then what can i do?" },
+      { role: "assistant", content: "Staff can call you once your request is routed. First - are you able to put weight on the leg, and is there significant swelling?" },
+    ],
+    assert: (d) => (d.routingDecision === "routine" ? null : `lane=${d.routingDecision}`),
+  },
   {
     name: "ordinary complaint → routine",
     message: "My knee has been hurting for three weeks.",
@@ -72,7 +91,7 @@ async function run() {
       const res = await fetch(`${BASE}/api/intake`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: "s-eval", messages: [{ role: "user", content: c.message }] }),
+        body: JSON.stringify({ sessionId: "s-eval", messages: [...(c.history ?? []), { role: "user", content: c.message }] }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = (await res.json()) as Decision;

@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useStore, meeraVisits } from "@/lib/store";
 import { ARRIVE_EARLY, findFeasibleSlot } from "@/lib/engine";
 import { IntakeDecision, PatientRecord, fmt, fmtWin, rupees } from "@/lib/types";
-import { getSessionId } from "@/lib/session";
+import { getSessionId, getRole } from "@/lib/session";
 
 const EXAMPLE = "My knee has been hurting for three weeks.";
 
@@ -110,8 +110,13 @@ export default function PatientView() {
               )}
             </div>
           ) : meeraVisits(state).some((p) => p.phase === "AWAITING_CLINICAL_REVIEW") ? (
-            <div className="m-3 border border-red-200 bg-red-50 rounded-lg p-3 text-sm text-red-900">
-              A clinician needs to review this before any booking. <b>Your visit is not booked yet</b> — no times can be offered until they decide.
+            <div className="m-3 border border-amber-300 bg-amber-50 rounded-lg p-3 text-sm text-amber-900 space-y-1.5">
+              <div>
+                <b>The clinician on duty has been notified</b> and will review your request before booking. Your visit is not booked yet — times appear here as soon as they respond (typically within minutes). If anything worsens, use the emergency option below.
+              </div>
+              {getRole() === "all" && (
+                <div className="text-[11px] text-amber-700">Demo tip: switch to the 🩺 Clinician tab to act as the reviewer — on the patient-only link, staff respond automatically.</div>
+              )}
             </div>
           ) : meeraVisits(state).some((p) => p.phase === "AWAITING_SCHEDULING_APPROVAL") ? (
             <div className="m-3 border border-amber-300 bg-amber-50 rounded-lg p-3 text-sm text-amber-900">
