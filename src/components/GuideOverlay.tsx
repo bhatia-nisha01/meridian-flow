@@ -1,16 +1,13 @@
 "use client";
 
-// First-visit orientation overlay. Shown once (localStorage flag), reopenable
-// from the header "❓ How this works" button. Pure UI — touches no clinic state.
+// Orientation overlay, shown on every page load and reopenable from the
+// header "❓ How this works" button. Pure UI — touches no clinic state.
 
 import { getRole } from "@/lib/session";
 
 export default function GuideOverlay({ onClose }: { onClose: () => void }) {
   const role = getRole();
-  const close = () => {
-    window.localStorage.setItem("mf-guide-seen", "1");
-    onClose();
-  };
+  const close = onClose;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 flex items-center justify-center p-4" onClick={close}>

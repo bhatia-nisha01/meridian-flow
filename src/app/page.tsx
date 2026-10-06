@@ -32,7 +32,7 @@ function Shell() {
     setRole(r);
     if (r === "ops") setTab("ops");
     if (r === "clinician") setTab("clin");
-    if (!window.localStorage.getItem("mf-guide-seen")) setShowGuide(true);
+    setShowGuide(true);
   }, []);
 
   // Patient-only mode: staff steps happen automatically (labelled as simulated staff)
