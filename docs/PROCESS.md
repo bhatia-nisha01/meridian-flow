@@ -46,6 +46,7 @@ Behaviour is tested, not asserted (`tests/`, run via `npm test` and `npm run eva
 - **Model uncertain** → that is a lane (`clarify`), not a guess.
 - **Plan changes mid-approval** → proposals carry the plan version they were drafted against; stale ones are refused and recomputed.
 - **Messaging/consent silence** → no response never equals agreement; the existing booking stands and an owned task is created.
+- **Scheduling system unavailable** → the clinic continues on the last safe schedule with manual desk workflow; the AI layer degrades to nothing worse than today's OPD. The product adds coordination; it never becomes a dependency for care happening.
 
 ## 6. Real vs simulated
 

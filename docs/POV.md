@@ -15,7 +15,13 @@ An outpatient department runs on a sixty-year-old protocol: show up, take a toke
 2. **The appointment becomes a care commitment.** The system records the promise it made (the *original window*, immutable) separately from the current plan. When reality shifts — a doctor delayed, a consult overrunning — the engine drafts an explainable, consent-gated change: staff approve it, the patient accepts or declines it, and the original promise stays on the record so the hospital reports its lateness instead of hiding it. The patient is no longer the buffer; the *plan* is.
 3. **Coordination and medicine split cleanly.** Operations approves scheduling; clinicians decide everything medical; the model classifies and drafts under a clinician-authored escalation policy — it never diagnoses, never invents availability, never touches the calendar. Every actionable exception has an owner, a deadline, and a stated next step.
 
-This is not the existing workflow automated. The existing workflow has no triage at booking, no promise-keeping ledger, no consent loop, and no exception ownership — its only mechanism is the queue.
+**The journey, before and after:**
+
+> **Today:** decide to visit → travel → register → take a token → wait (hours, open-ended) → doctor → tests → maybe return → repeat for follow-up.
+>
+> **Meridian Flow:** describe the need in your own words → routed (bookable slot / clinician review / emergency) → pay & confirm → arrive 15 minutes before a promised time → token on arrival (an identifier, not a queue) → consultation → next steps ordered by the doctor, bookable in one tap.
+
+This is not the existing workflow automated. The existing workflow has no routing at booking, no promise-keeping ledger, no consent loop, and no exception ownership — its only mechanism is the queue.
 
 ## 2. The product
 
