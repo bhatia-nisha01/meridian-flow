@@ -5,19 +5,34 @@ import { StoreProvider, useStore } from "@/lib/store";
 import PatientView from "@/components/PatientView";
 import OperationsView from "@/components/OperationsView";
 import ClinicianView from "@/components/ClinicianView";
-import { fmt } from "@/lib/types";
+import GuideOverlay from "@/components/GuideOverlay";
+import { fmt, FlowState } from "@/lib/types";
 import { getRole } from "@/lib/session";
+
+// One line telling a first-time tester what to do next; first match wins.
+function nextHint(state: FlowState, tab: string): string | null {
+  const meera = state.patients.filter((p) => p.id.startsWith("p-meera"));
+  if (meera.some((p) => p.phase === "AWAITING_PAYMENT")) return "Pay (simulated) to confirm your booking.";
+  if (meera.some((p) => p.phase === "AWAITING_CLINICAL_REVIEW")) return "A clinician must review this request — open the 🩺 Clinician tab and act as the reviewer.";
+  if (state.simPhase === "booking" && meera.length === 0) return "Start here: tell the assistant what you need in the chat below.";
+  if (state.simPhase === "booking" && meera.some((p) => p.phase === "BOOKED")) return "Your visit is booked. Press ⏭ Jump to clinic day (top bar) to see the clinic running.";
+  if (state.simPhase !== "booking" && tab === "patient") return "Now run the clinic: open 🏥 Operations to check patients in, or 🩺 Clinician to consult.";
+  return null;
+}
 
 function Shell() {
   const { state, dispatch } = useStore();
   const [tab, setTab] = useState<"patient" | "ops" | "clin">("patient");
   const [role, setRole] = useState<"all" | "patient" | "ops" | "clinician">("all");
+  const [showGuide, setShowGuide] = useState(false);
+  const [hintDismissed, setHintDismissed] = useState(false);
 
   useEffect(() => {
     const r = getRole();
     setRole(r);
     if (r === "ops") setTab("ops");
     if (r === "clinician") setTab("clin");
+    if (!window.localStorage.getItem("mf-guide-seen")) setShowGuide(true);
   }, []);
 
   // Patient-only mode: staff steps happen automatically (labelled as simulated staff)
@@ -52,11 +67,13 @@ function Shell() {
 
   const visibleTabs = (
     [
-      ["patient", "🧑 Patient"],
-      ["ops", "🏥 Operations"],
-      ["clin", "🩺 Clinician"],
+      ["patient", "🧑 Patient", "Book and manage your visit"],
+      ["ops", "🏥 Operations", "Front desk: run the clinic day"],
+      ["clin", "🩺 Clinician", "The doctor's screen"],
     ] as const
   ).filter(([k]) => role === "all" || (role === "patient" && k === "patient") || (role === "ops" && k !== "clin") || (role === "clinician" && k !== "ops"));
+
+  const hint = role === "all" && !hintDismissed ? nextHint(state, tab) : null;
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -72,8 +89,8 @@ function Shell() {
           </div>
           <div className="flex items-center gap-2 text-xs">
             <div className="flex rounded-lg overflow-hidden border border-slate-700">
-              {visibleTabs.map(([k, label]) => (
-                <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 font-medium ${tab === k ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>
+              {visibleTabs.map(([k, label, tip]) => (
+                <button key={k} onClick={() => setTab(k)} title={tip} className={`px-3 py-1.5 font-medium ${tab === k ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>
                   {label}
                 </button>
               ))}
@@ -87,19 +104,33 @@ function Shell() {
                 ⏩ clock +10 min
               </button>
             ) : null}
+            <button onClick={() => setShowGuide(true)} title="What is this and what should I try?" className="border border-slate-600 text-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-800">
+              ❓ How this works
+            </button>
             <button
               onClick={() => {
-                if (confirm("Reset the simulation to the original seed?")) dispatch({ type: "RESET" });
+                if (confirm("Restart the demo? This clears your test bookings and restores the original synthetic data.")) dispatch({ type: "RESET" });
               }}
-              className="border border-slate-600 text-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-800"
+              title="Wipes your test bookings and restores the original demo data"
+              className="border border-amber-500/60 text-amber-300 rounded-lg px-3 py-1.5 hover:bg-slate-800"
             >
-              ↺ Reset
+              ↺ Restart demo
             </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-[1400px] mx-auto p-5">
+        {hint && (
+          <div className="mb-4 flex items-center justify-between gap-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-3.5 py-2 text-sm">
+            <div>
+              <span className="font-semibold">Next step:</span> {hint}
+            </div>
+            <button onClick={() => setHintDismissed(true)} title="Hide hints" className="text-blue-400 hover:text-blue-700 font-bold px-1">
+              ×
+            </button>
+          </div>
+        )}
         {tab === "patient" && <PatientView />}
         {tab === "ops" && <OperationsView />}
         {tab === "clin" && <ClinicianView />}
@@ -109,6 +140,8 @@ function Shell() {
         Simulation — synthetic data only. Conversational intake runs live on a large language model; it cannot diagnose or change the
         schedule. Interactions are recorded for prototype evaluation.
       </footer>
+
+      {showGuide && <GuideOverlay onClose={() => setShowGuide(false)} />}
 
     </div>
   );
